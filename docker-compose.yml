@@ -1,0 +1,22 @@
+services:
+  api:
+    build: .
+    image: custom-ai-platform:latest
+    ports:
+      - "8000:8000"
+    environment:
+      STORAGE_ROOT: /app
+      CHROMA_PATH: storage/chroma_data
+      CHECKPOINT_DIR: storage/checkpoints
+      VOCAB_PATH: storage/vocab/vocab.json
+      DEVICE: cpu
+      LOG_LEVEL: INFO
+      DEFAULT_LANGUAGE: en
+    volumes:
+      - chroma_data:/app/storage/chroma_data
+      - checkpoints:/app/storage/checkpoints
+    restart: unless-stopped
+
+volumes:
+  chroma_data:
+  checkpoints:

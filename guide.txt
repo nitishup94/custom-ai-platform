@@ -1,0 +1,208 @@
+================================================================================
+  Custom AI Platform — HTTP API quick guide (curl + JSON payloads)
+================================================================================
+
+Prerequisites
+-------------
+  1) Start the server from the ai-project directory:
+
+       ./run.sh
+       # or:  uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  2) Set a base URL (default below uses port 8000):
+
+       export BASE_URL=http://127.0.0.1:8000
+
+  Postman: import [`postman/Custom-AI-Platform.postman_collection.json`](postman/Custom-AI-Platform.postman_collection.json),
+  then edit collection variable **baseUrl** if your server differs.
+
+  All examples use curl with Content-Type: application/json where needed.
+
+
+================================================================================
+GET  /health
+================================================================================
+
+  No request body.
+
+  Example:
+    curl -s "${BASE_URL}/health"
+
+  Example response:
+    {"status":"ok"}
+
+
+================================================================================
+GET  /models
+================================================================================
+
+  No request body.
+
+  Example:
+    curl -s "${BASE_URL}/models"
+
+  Example response:
+    {"models":[{"name":"custom-transformer-v1"}]}
+
+  (The model name comes from env MODEL_NAME / config default.)
+
+
+================================================================================
+POST /train
+================================================================================
+
+  Stores one Q/A document in Chroma (embedding from "input" only) and runs
+  one language-model training step. Saves checkpoints under storage/checkpoints/.
+
+  The tokenizer is UTF-8 **byte-level**: English, Hindi (Devanagari), and other
+  scripts work without changing the model file. Optional **language** tags
+  (e.g. en, hi) scope Chroma metadata for scalable bilingual RAG.
+
+  JSON body (required + optional):
+
+    {
+      "input":    "<question or prompt text>",
+      "output":   "<expected answer text>",
+      "category": "<label, e.g. programming>",
+      "language": "<optional: en, hi, hi-in — BCP47-style tag>"
+    }
+
+  Rules:
+    - input, output: non-empty after trim; max length 8192 chars each.
+    - category: letters, digits, space, hyphen, underscore only; max 256 chars.
+  - language: optional per request; if omitted, server uses **DEFAULT_LANGUAGE** from `.env` (see `.env.example`) for Chroma metadata.
+
+  Example:
+    curl -s -X POST "${BASE_URL}/train" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "input": "What is PHP?",
+        "output": "PHP is a server-side scripting language.",
+        "category": "programming",
+        "language": "en"
+      }'
+
+  Example response:
+    {"loss":2.718,"global_step":1}
+
+
+================================================================================
+POST /v1/chat/completions
+================================================================================
+
+  OpenAI-style chat completion (subset). Uses the last message with role "user".
+
+  JSON body:
+
+    {
+      "messages": [
+        { "role": "user", "content": "Your question or instruction here" }
+      ],
+      "max_tokens": 100,
+      "temperature": 0.9,
+      "language": "hi"
+    }
+
+  Fields:
+    - messages: required, non-empty list of { "role", "content" }.
+    - max_tokens: optional, default 100, range 1–2048.
+    - temperature: optional; if omitted, server uses GENERATION_TEMPERATURE
+      (default ~0.9). If sent, must be between 0.1 and 5.0.
+    - language: optional; if set, Chroma retrieval only uses documents stored
+      with the same language tag on /train. Omit for mixed or legacy data.
+
+  Example (minimal):
+    curl -s -X POST "${BASE_URL}/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "messages": [{"role":"user","content":"Hello"}],
+        "max_tokens": 64
+      }'
+
+  Example (with temperature):
+    curl -s -X POST "${BASE_URL}/v1/chat/completions" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "messages": [
+          {"role":"system","content":"You are helpful."},
+          {"role":"user","content":"What is PHP?"}
+        ],
+        "max_tokens": 100,
+        "temperature": 0.8
+      }'
+
+  Note: Only the last "user" message drives the user prompt; other roles are
+  ignored for that selection.
+
+  Example response (shape):
+    {
+      "id": "<uuid>",
+      "object": "chat.completion",
+      "created": 1710000000,
+      "model": "custom-transformer-v1",
+      "choices": [
+        {
+          "index": 0,
+          "message": { "role": "assistant", "content": "<generated text>" },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": <int>,
+        "completion_tokens": <int>,
+        "total_tokens": <int>
+      }
+    }
+
+
+================================================================================
+POST /v1/embeddings
+================================================================================
+
+  Returns a single embedding vector (length = model d_model), OpenAI-like shape.
+
+  JSON body:
+
+    { "text": "<non-empty string>" }
+
+  Example:
+    curl -s -X POST "${BASE_URL}/v1/embeddings" \
+      -H "Content-Type: application/json" \
+      -d '{"text":"Artificial intelligence"}'
+
+  Example response (shape):
+    {
+      "object": "list",
+      "data": [
+        {
+          "object": "embedding",
+          "embedding": [0.01, -0.02, "... d_model floats ..."],
+          "index": 0
+        }
+      ],
+      "model": "custom-transformer-v1"
+    }
+
+
+================================================================================
+Errors
+================================================================================
+
+  - 422 Unprocessable Entity: validation errors (body or field rules).
+        curl shows: {"detail": ...}
+
+  - 500 Internal Server Error: unexpected server failure (no stack trace in body).
+        {"detail":"internal server error"}
+
+
+================================================================================
+Docker
+================================================================================
+
+  If the API runs in Compose with published port 8000:
+
+    export BASE_URL=http://127.0.0.1:8000
+
+  Same curl commands as above apply.
+
+================================================================================

@@ -1,0 +1,28 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+
+# Runtime storage (keep .gitkeep placeholders)
+storage/chroma_data/**
+!storage/chroma_data/.gitkeep
+storage/checkpoints/**
+!storage/checkpoints/.gitkeep
+storage/datasets/**/*.parquet
+storage/datasets/json/*.json
+!storage/datasets/json/.gitkeep
+
+# Logs and local artifacts
+*.log
+graphify-out/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

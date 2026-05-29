@@ -1,0 +1,305 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Custom AI Platform",
+    "description": "Self-hosted FastAPI: health, models, **POST /train**, **POST /train/reset-storage**, **POST /dataset/** (parquet), **POST /dataset/json/** (JSON files), OpenAI-shaped **/v1/chat/completions** and **/v1/embeddings**.\n\n**baseUrl** (collection variable): default `http://127.0.0.1:8000`.\n\n**Parquet dataset**: place `1M-GPT4-Augmented.parquet` at `{STORAGE_ROOT}/storage/datasets/` (default project cwd → `storage/datasets/…`).\n\n**JSON datasets**: place `*.json` under `{STORAGE_ROOT}/storage/datasets/json/` (array of `{input,output,category,language?}` or JSONL).\n\n**Env (see `.env.example`)**: `LOG_TRAINING_SAMPLES` (per-row JSON logs on `/train` + dataset worker), `LOG_CONSOLE_ENABLED` / `LOG_FILE_PATH`, `MAX_SEQ_LEN` (caps chat generation with prompt), `MAX_TRAIN_FIELD_CHARS`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health & models",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Liveness probe. Returns `{\"status\":\"ok\"}`."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /models",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/models",
+            "description": "Lists configured model id(s) from `MODEL_NAME` / config."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Train",
+      "description": "`POST /train` indexes Q/A in Chroma and runs one LM step. Optional `LOG_TRAINING_SAMPLES=true` in `.env` adds JSON logs with instruction/response token counts and preview.",
+      "item": [
+        {
+          "name": "POST /train",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"What is PHP?\",\n  \"output\": \"PHP is a server-side scripting language.\",\n  \"category\": \"programming\",\n  \"language\": \"en\"\n}"
+            },
+            "url": "{{baseUrl}}/train",
+            "description": "Chroma document `Question: …\\nAnswer: …`; embedding from `input`. Optional `language` (BCP47) for retrieval filter. Max field length from env `MAX_TRAIN_FIELD_CHARS`."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /train (Hindi + language tag)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": \"पीएचपी क्या है?\",\n  \"output\": \"पीएचपी एक सर्वर-साइड स्क्रिप्टिंग भाषा है।\",\n  \"category\": \"programming\",\n  \"language\": \"hi\"\n}"
+            },
+            "url": "{{baseUrl}}/train",
+            "description": "UTF-8 byte tokenizer; store `language` on Chroma for Hindi-scoped RAG in chat."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /train/reset-storage (all defaults)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chromadb\": true,\n  \"checkpoints\": true,\n  \"dataset_progress\": true\n}"
+            },
+            "url": "{{baseUrl}}/train/reset-storage",
+            "description": "Clears Chroma, checkpoint files, **dataset_progress.json** + **json_dataset_progress.json** when `dataset_progress` is true, resets parquet + JSON in-memory trackers, resets trainer when checkpoints cleared. **409** if parquet or JSON dataset worker is running (stop both pipelines first). Omitted keys default `true`; `{}` wipes everything."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /train/reset-storage (Chroma only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"chromadb\": true,\n  \"checkpoints\": false,\n  \"dataset_progress\": false\n}"
+            },
+            "url": "{{baseUrl}}/train/reset-storage",
+            "description": "Example: drop only indexed vectors; keep checkpoints and parquet cursor."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dataset (OpenOrca parquet)",
+      "description": "Background worker reads `storage/datasets/1M-GPT4-Augmented.parquet` via PyArrow (lazy batches). Progress file: `storage/checkpoints/dataset_progress.json` (under `STORAGE_ROOT`).",
+      "item": [
+        {
+          "name": "POST /dataset/start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dataset\": \"openorca\",\n  \"batch_size\": 32,\n  \"language\": \"en\",\n  \"resume\": true\n}"
+            },
+            "url": "{{baseUrl}}/dataset/start",
+            "description": "Starts worker thread. Same Chroma + `train_on_sample` per row as `/train`. `resume` default true when prior `dataset_progress.json` matches dataset/batch_size/language. **409** if already running."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /dataset/progress",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/dataset/progress",
+            "description": "`processed_records`, `remaining_records`, `global_step`, `loss`, `checkpoint`, `estimated_time_remaining`."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /dataset/stop",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/dataset/stop",
+            "description": "Cooperative stop after current batch. `{\"status\":\"stopped\"}`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dataset (JSON files)",
+      "description": "Place `*.json` under `{STORAGE_ROOT}/storage/datasets/json` (JSON array of objects or JSONL). Each object: `input`, `output`, `category`, optional `language`. Progress: `json_dataset_progress.json`. Exclusive with parquet dataset worker.",
+      "item": [
+        {
+          "name": "GET /dataset/json/list",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/dataset/json/list",
+            "description": "Returns `{\"files\":[\"greetings.json\",...]}` sorted basenames."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /dataset/json/start",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"file\": \"greetings.json\",\n  \"batch_size\": 32,\n  \"resume\": true\n}"
+            },
+            "url": "{{baseUrl}}/dataset/json/start",
+            "description": "**409** if parquet worker running or this worker already running. Optional `resume` (default true)."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /dataset/json/progress",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/dataset/json/progress",
+            "description": "`current_file`, `processed_records`, `remaining_records`, `global_step`, `loss`, `checkpoint`."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /dataset/json/stop",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/dataset/json/stop",
+            "description": "`{\"status\":\"stopped\"}`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "OpenAI-compatible",
+      "description": "`max_tokens` 1–20000 in the API; generation is still capped by `MAX_SEQ_LEN` minus prompt length. `finish_reason`: `stop` (EOS) or `length` (budget/window).",
+      "item": [
+        {
+          "name": "POST /v1/chat/completions (minimal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"Hello\" }\n  ],\n  \"max_tokens\": 64\n}"
+            },
+            "url": "{{baseUrl}}/v1/chat/completions",
+            "description": "Uses the **last** `user` message. Optional `temperature` (0.1–5.0), optional `language` (Chroma metadata filter)."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /v1/chat/completions (with temperature)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messages\": [\n    { \"role\": \"system\", \"content\": \"You are helpful.\" },\n    { \"role\": \"user\", \"content\": \"What is PHP?\" }\n  ],\n  \"max_tokens\": 100,\n  \"temperature\": 0.8\n}"
+            },
+            "url": "{{baseUrl}}/v1/chat/completions",
+            "description": "System + user roles example."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /v1/chat/completions (language filter hi)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"messages\": [\n    { \"role\": \"user\", \"content\": \"पीएचपी क्या है?\" }\n  ],\n  \"max_tokens\": 64,\n  \"language\": \"hi\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/chat/completions",
+            "description": "Retrieval restricted to Chroma rows with `language: hi`."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /v1/embeddings",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"Artificial intelligence\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/embeddings",
+            "description": "One pooled L2-normalized vector; length = `d_model`."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

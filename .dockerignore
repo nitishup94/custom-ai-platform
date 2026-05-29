@@ -1,0 +1,12 @@
+storage/chroma_data/**
+!storage/chroma_data/.gitkeep
+storage/checkpoints/**
+!storage/checkpoints/.gitkeep
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.venv/
+venv/

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "tokenizer_type": "byte",
+  "specials": {
+    "<pad>": 0,
+    "<unk>": 1,
+    "<bos>": 2,
+    "<eos>": 3,
+    "<sep>": 4
+  },
+  "byte_offset": 5,
+  "reserved_vocab_size": 512,
+  "merges": []
+}
